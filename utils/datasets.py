@@ -127,6 +127,14 @@ class _RepeatSampler(object):
 
 class LoadImages:  # for inference
     def __init__(self, path, img_size=640, stride=32):
+        print("SMILEY YOU ARE LOADING IMAGES at size {}".format(img_size)) #edit sjs
+        self.fps=0
+        self.count_fps=0
+        self.fps_cum=0
+        self.fps_avg=0
+        self.time_i=time.time()
+        self.time_j=time.time()
+        
         p = str(Path(path).absolute())  # os-agnostic absolute path
         if '*' in p:
             files = sorted(glob.glob(p, recursive=True))  # glob
@@ -157,6 +165,35 @@ class LoadImages:  # for inference
     def __iter__(self):
         self.count = 0
         return self
+    def find_fps(self):
+        #new from sjs
+        '''This should find the fps each frame'''
+        self.time_j=time.time()
+        self.fps=1.0/(self.time_j-self.time_i)
+        self.time_i=self.time_j
+        self.fps_avg=self.find_avg_fps()
+        return self.fps,self.fps_avg
+    def find_avg_fps(self):
+        #new from sjs
+        '''This should find the avg-fps'''
+        self.count_fps+=1
+        self.fps_cum+=self.fps
+        self.fps_avg=self.fps_cum/self.count_fps
+        return self.fps_avg
+    def find_new_size(self,img0):
+        #new from sjs
+        '''This should take the mp4 video aspect ratio into account for resizing or cropping to model size resolution'''
+        H,W,D=img0.shape
+        if W>H:
+            ASPECT=float(W/H)
+            self.new_W=self.img_size
+            self.new_H=int(self.img_size/ASPECT)
+        else:
+            ASPECT=float(H/W)
+            self.new_H=self.img_size
+            self.new_W=int(self.img_size/ASPECT)
+        #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
+        return self.new_H,self.new_W
 
     def __next__(self):
         if self.count == self.nf:
@@ -167,6 +204,10 @@ class LoadImages:  # for inference
             # Read video
             self.mode = 'video'
             ret_val, img0 = self.cap.read()
+            #print('img0.shape',img0.shape)
+            #edit sjs
+            self.new_H,self.new_W=self.find_new_size(img0)
+            img0=cv2.resize(img0,(self.new_W,self.new_H))
             if not ret_val:
                 self.count += 1
                 self.cap.release()
@@ -176,14 +217,21 @@ class LoadImages:  # for inference
                     path = self.files[self.count]
                     self.new_video(path)
                     ret_val, img0 = self.cap.read()
+                    #edit sjs
+                    self.new_H,self.new_W=self.find_new_size(img0)
+                    img0=cv2.resize(img0,(self.new_W,self.new_H))
+                    
 
             self.frame += 1
             print(f'video {self.count + 1}/{self.nf} ({self.frame}/{self.nframes}) {path}: ', end='')
+            self.fps,self.fps_avg=self.find_fps()
+            print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS) with {self.fps_avg:.2f} AVG FPS')
 
         else:
             # Read image
             self.count += 1
             img0 = cv2.imread(path)  # BGR
+
             assert img0 is not None, 'Image Not Found ' + path
             #print(f'image {self.count}/{self.nf} {path}: ', end='')
 
