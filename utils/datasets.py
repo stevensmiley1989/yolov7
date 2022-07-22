@@ -183,16 +183,19 @@ class LoadImages:  # for inference
     def find_new_size(self,img0):
         #new from sjs
         '''This should take the mp4 video aspect ratio into account for resizing or cropping to model size resolution'''
-        H,W,D=img0.shape
-        if W>H:
-            ASPECT=float(W/H)
-            self.new_W=self.img_size
-            self.new_H=int(self.img_size/ASPECT)
-        else:
-            ASPECT=float(H/W)
-            self.new_H=self.img_size
-            self.new_W=int(self.img_size/ASPECT)
-        #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
+        try:
+            H,W,D=img0.shape
+            if W>H:
+                ASPECT=float(W/H)
+                self.new_W=self.img_size
+                self.new_H=int(self.img_size/ASPECT)
+            else:
+                ASPECT=float(H/W)
+                self.new_H=self.img_size
+                self.new_W=int(self.img_size/ASPECT)
+            #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
+        except:
+            pass
         return self.new_H,self.new_W
 
     def __next__(self):
@@ -206,8 +209,9 @@ class LoadImages:  # for inference
             ret_val, img0 = self.cap.read()
             #print('img0.shape',img0.shape)
             #edit sjs
-            self.new_H,self.new_W=self.find_new_size(img0)
-            img0=cv2.resize(img0,(self.new_W,self.new_H))
+            if ret_val:
+                self.new_H,self.new_W=self.find_new_size(img0)
+                img0=cv2.resize(img0,(self.new_W,self.new_H))
             if not ret_val:
                 self.count += 1
                 self.cap.release()
@@ -217,9 +221,10 @@ class LoadImages:  # for inference
                     path = self.files[self.count]
                     self.new_video(path)
                     ret_val, img0 = self.cap.read()
-                    #edit sjs
-                    self.new_H,self.new_W=self.find_new_size(img0)
-                    img0=cv2.resize(img0,(self.new_W,self.new_H))
+                    if ret_val:
+                        #edit sjs
+                        self.new_H,self.new_W=self.find_new_size(img0)
+                        img0=cv2.resize(img0,(self.new_W,self.new_H))
                     
 
             self.frame += 1
@@ -313,6 +318,14 @@ class LoadWebcam:  # for inference
 
 class LoadStreams:  # multiple IP or RTSP cameras
     def __init__(self, sources='streams.txt', img_size=640, stride=32):
+        print("SMILEY YOU ARE LOADING VIDEO at size {}".format(img_size)) #edit sjs
+        self.fps=0
+        self.count_fps=0
+        self.fps_cum=0
+        self.fps_avg=0
+        self.time_i=time.time()
+        self.time_j=time.time()
+
         self.mode = 'stream'
         self.img_size = img_size
         self.stride = stride
@@ -341,8 +354,11 @@ class LoadStreams:  # multiple IP or RTSP cameras
             self.fps = cap.get(cv2.CAP_PROP_FPS) % 100
 
             _, self.imgs[i] = cap.read()  # guarantee first frame
+            #edit sjs
+            self.new_H,self.new_W=self.find_new_size(self.imgs[i])
             thread = Thread(target=self.update, args=([i, cap]), daemon=True)
-            print(f' success ({w}x{h} at {self.fps:.2f} FPS).')
+            #print(f' success ({w}x{h} at {self.fps:.2f} FPS).')
+            print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS)') #edit sjs
             thread.start()
         print('')  # newline
 
@@ -351,6 +367,20 @@ class LoadStreams:  # multiple IP or RTSP cameras
         self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
         if not self.rect:
             print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
+    def find_new_size(self,img0):
+        #new from sjs
+        '''This should take the mp4 video aspect ratio into account for resizing or cropping to model size resolution'''
+        H,W,D=img0.shape
+        if W>H:
+            ASPECT=float(W/H)
+            self.new_W=self.img_size
+            self.new_H=int(self.img_size/ASPECT)
+        else:
+            ASPECT=float(H/W)
+            self.new_H=self.img_size
+            self.new_W=int(self.img_size/ASPECT)
+        #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
+        return self.new_H,self.new_W
 
     def update(self, index, cap):
         # Read next stream frame in a daemon thread
@@ -362,6 +392,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
             if n == 4:  # read every 4th frame
                 success, im = cap.retrieve()
                 self.imgs[index] = im if success else self.imgs[index] * 0
+                #edit sjs
+                self.imgs_index=cv2.resize(self.imgs[index],(self.new_W,self.new_H))
+                
                 n = 0
             time.sleep(1 / self.fps)  # wait time
 
