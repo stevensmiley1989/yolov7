@@ -14,9 +14,71 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 
+import subprocess as sp
+class YOUTUBE_RTMP:
+    '''edit sjs, added YOUTUBE_RTMP class'''
+    def __init__(self,YOUTUBE_STREAM_KEY):
+        self.YOUTUBE_STREAM_KEY=YOUTUBE_STREAM_KEY
+        self.initiate=True
+    def Preprocess(self,HEIGHT_i,WIDTH_i,VBR_i):
+        self.HEIGHT_i=HEIGHT_i
+        self.WIDTH_i=WIDTH_i
+        self.VBR_i=VBR_i     
+        self.initiate=False
+        self.startFFmpeg_Process()
+    def startFFmpeg_Process(self):
+        self.cmd=["ffmpeg","-y","-f","lavfi","-i","anullsrc","-f","rawvideo","-vcodec","rawvideo", "-s","{}x{}".format(self.HEIGHT_i,self.WIDTH_i),
+        "-pix_fmt","bgr24","-i","-","-acodec","aac","-ar","44100","-b:a","712000","-vcodec","libx264","-preset","medium","-b:v","{}".format(self.VBR_i),"-bufsize","0","-pix_fmt",
+        "yuv420p","-f","flv","-crf","18","rtmp://a.rtmp.youtube.com/live2/{}".format(self.YOUTUBE_STREAM_KEY)]
+        self.process = sp.Popen(self.cmd, stdin=sp.PIPE, stdout=sp.DEVNULL, stderr=sp.STDOUT)
+    def write(self,frame,VBR_i):
+        # initiate FFmpeg process on first run
+        if self.initiate:
+            # start pre-processing and initiate process
+            self.Preprocess(frame.shape[1],frame.shape[0],VBR_i)
+            # Check status of the process
+            assert self.process is not None
+        # write the frame
+        try:
+            self.process.stdin.write(frame.tostring())
+        except (OSError, IOError):
+            # log something is wrong!
+            print(
+                "BrokenPipeError caught"
+            )
+            raise ValueError  # for testing purpose only
+    def close(self):
+        if self.process.stdin:
+            self.process.stdin.close()  # close `stdin` output
+        self.process.wait()  # wait if still process is still processing some information
+        self.process = None
+  
+
+def YOUTUBE_STREAM_RESOLUTION(res='720p'):
+    '''edit sjs, added YOUTUBE_STREAM_RESOLUTION function'''
+    #returns the height,width, and video bit rate
+    if res=='720p':
+        return 720,1280,'4000k'
+    elif res=='1080p':
+        return 1080,1920,'6000k'
+    elif res=='480p':
+        return 480,854,'2000k'
+    elif res=='360p':
+        return 640,360,'1000k'
+    else:
+        print('DID NOT RECOGNIZE res=={}\n so using res==720p'.format(res))
+        return 720,1280,'4000k'
 
 def detect(save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
+    #edit sjs
+    YOUTUBE_STREAM_KEY = opt.YOUTUBE_RTMP
+    YOUTUBE_STREAM_RES = opt.YOUTUBE_STREAM_RES
+    if YOUTUBE_STREAM_KEY!='xxxx-xxxx-xxxx-xxxx-xxxx':
+        RTMP=True
+        writer=YOUTUBE_RTMP(YOUTUBE_STREAM_KEY)
+    else:
+        RTMP=False
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -136,13 +198,20 @@ def detect(save_img=False):
                             vid_writer.release()  # release previous video writer
                         if vid_cap:  # video
                             fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            #w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            #h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            w, h = im0.shape[1], im0.shape[0] #edit sjs
+                            
                         else:  # stream
                             fps, w, h = 30, im0.shape[1], im0.shape[0]
                             save_path += '.mp4'
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer.write(im0)
+            # Send to YOUTUBE (image with detections)
+            if RTMP:
+                YH_i,YW_i,VBR_i=YOUTUBE_STREAM_RESOLUTION(res=YOUTUBE_STREAM_RES)
+                image=cv2.resize(im0,(YW_i,YH_i))
+                writer.write(image,VBR_i)
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
@@ -171,7 +240,10 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
+    parser.add_argument("--YOUTUBE_RTMP",type=str,default="xxxx-xxxx-xxxx-xxxx-xxxx",help="The YOUTUBE STREAM RTMP Key")
+    parser.add_argument("--YOUTUBE_STREAM_RES",type=str,default='720p',help="Youtube Stream Height")
     opt = parser.parse_args()
+    
     print(opt)
     #check_requirements(exclude=('pycocotools', 'thop'))
 
