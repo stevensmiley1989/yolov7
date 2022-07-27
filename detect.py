@@ -1,7 +1,7 @@
 import argparse
 import time
 from pathlib import Path
-
+import os
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
@@ -68,7 +68,13 @@ def YOUTUBE_STREAM_RESOLUTION(res='720p'):
     else:
         print('DID NOT RECOGNIZE res=={}\n so using res==720p'.format(res))
         return 720,1280,'4000k'
-
+def send_imgs(sender,im0):
+    try:
+        sender.send_image("YOLO OUPUT", im0)
+    except:
+        pass
+def run_cmd(cmd_i):
+    os.system(cmd_i)
 def detect(save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     #edit sjs
@@ -79,6 +85,34 @@ def detect(save_img=False):
         writer=YOUTUBE_RTMP(YOUTUBE_STREAM_KEY)
     else:
         RTMP=False
+    
+    RTSP_PATH = opt.RTSP_PATH
+    RTSP_SERVER_PATH=opt.RTSP_SERVER_PATH
+    RTSP=False
+    running=False
+    if RTSP_PATH != 'xxxx-xxxx-xxxx-xxxx-xxxx' and os.path.exists(RTSP_SERVER_PATH):
+        print(RTSP_SERVER_PATH)
+        if opt.width:
+            WIDTH=opt.width
+        else:
+            WIDTH=imgsz
+        if opt.height:
+            HEIGHT=opt.height
+        else:
+            HEIGHT=imgsz
+        import sys
+        from threading import Thread
+        sys.path.append(os.path.dirname(RTSP_SERVER_PATH))
+        #import rtsp_server as rs
+        import imagezmq
+        sender = imagezmq.ImageSender()
+        RTSP=True
+        
+        #cmd_i='python3 {} --fps=30 --width={} --height={} --port={} --stream_key={}'.format(RTSP_SERVER_PATH, WIDTH,HEIGHT,opt.port,opt.stream_key)
+        #RunMe=Thread(target=run_cmd,args=(cmd_i,)).start()
+        #RunMe=Thread(target=rs.RunMe,args=(30,WIDTH,HEIGHT,opt.port,opt.stream_key,)).start()
+        
+    
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -212,6 +246,17 @@ def detect(save_img=False):
                 YH_i,YW_i,VBR_i=YOUTUBE_STREAM_RESOLUTION(res=YOUTUBE_STREAM_RES)
                 image=cv2.resize(im0,(YW_i,YH_i))
                 writer.write(image,VBR_i)
+            if running and RTSP:
+                running=True
+                pass
+            elif RTSP:
+                #input("RUNNING")
+                cmd_i='python3 {} --fps=30 --width={} --height={} --port={} --stream_key={}'.format(RTSP_SERVER_PATH, im0.shape[1],im0.shape[0],opt.port,opt.stream_key)
+                RunMe=Thread(target=run_cmd,args=(cmd_i,)).start()
+                running=True
+            if RTSP:
+                Thread(target=send_imgs,args=(sender,im0,)).start()
+                
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
@@ -242,6 +287,13 @@ if __name__ == '__main__':
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument("--YOUTUBE_RTMP",type=str,default="xxxx-xxxx-xxxx-xxxx-xxxx",help="The YOUTUBE STREAM RTMP Key")
     parser.add_argument("--YOUTUBE_STREAM_RES",type=str,default='720p',help="Youtube Stream Height")
+    parser.add_argument("--RTSP_PATH",type=str,default="xxxx-xxxx-xxxx-xxxx-xxxx",help="The RTSP Path")
+    parser.add_argument("--RTSP_SERVER_PATH",type=str,default="/media/steven/Elements/Full_Loop_YOLO/resources/rtsp_server.py",help="The path to rtsp_server.py")
+    parser.add_argument("--fps",default=30,help="fps of incoming images for rtsp_server",type=int)
+    parser.add_argument("--width",default=None,help="width of incoming images for rtsp_server",type=int)
+    parser.add_argument("--height",default=None,help="height of incoming images for rtsp_server",type=int)
+    parser.add_argument("--port",default=8554,help="port for rtsp_server",type=int)
+    parser.add_argument("--stream_key",default="/video_stream",help="rtsp image stream uri for rtsp_server")
     opt = parser.parse_args()
     
     print(opt)
