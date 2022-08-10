@@ -6,6 +6,8 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
+import datetime
+import time
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -13,7 +15,7 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
-
+from threading import Thread
 import subprocess as sp
 class YOUTUBE_RTMP:
     '''edit sjs, added YOUTUBE_RTMP class'''
@@ -85,7 +87,32 @@ def detect(save_img=False):
         writer=YOUTUBE_RTMP(YOUTUBE_STREAM_KEY)
     else:
         RTMP=False
-    
+
+    #Sending images to cell phone via text/email
+    send_image_to_cell=opt.send_image_to_cell
+    send_image_to_cell_path=opt.send_image_to_cell_path
+    destinations=opt.destinations
+    basepath_chips=opt.basepath_chips
+    send_allowed=True
+    sleep_time_chips=opt.sleep_time_chips
+    start_time=time.time()
+
+    date_i=str(datetime.datetime.now()).replace(' ','_').replace('.','p').replace(':',"c").replace('-','_')
+    if os.path.exists(basepath_chips)==False and send_image_to_cell:
+        if os.path.exists(os.path.dirname(basepath_chips)):
+            os.makedirs(basepath_chips)
+            basepath_chips=os.path.join(basepath_chips,date_i)
+            if os.path.exists(basepath_chips)==False:
+                os.makedirs(basepath_chips)
+        else:
+            send_image_to_cell=False
+            print('You have a bad path to save chips.  Not sending images to cell')
+    elif send_image_to_cell:
+        basepath_chips=os.path.join(basepath_chips,date_i)
+        if os.path.exists(basepath_chips)==False:
+            os.makedirs(basepath_chips)
+
+
     RTSP_PATH = opt.RTSP_PATH
     RTSP_SERVER_PATH=opt.RTSP_SERVER_PATH
     RTSP=False
@@ -101,7 +128,7 @@ def detect(save_img=False):
         else:
             HEIGHT=imgsz
         import sys
-        from threading import Thread
+        #from threading import Thread
         sys.path.append(os.path.dirname(RTSP_SERVER_PATH))
         #import rtsp_server as rs
         import imagezmq
@@ -200,6 +227,14 @@ def detect(save_img=False):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
+                #Check send chips
+                time_now=time.time()
+                if time_now-start_time>sleep_time_chips:
+                    send_allowed=True
+                    start_time=time_now
+                else:
+                    send_allowed=False
+
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
@@ -211,6 +246,23 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+                    
+                    if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed:
+                        label = f'{names[int(cls)]} {conf:.2f}'
+                        label=str(datetime.datetime.now())+"_"+label
+                        label=label.replace(' ','_').replace('.','p').replace(':',"c").replace('-','_')
+                        chip_i=label+".jpg"
+                        chip_i=os.path.join(basepath_chips,chip_i)
+                        print('im0.shape',im0.shape)
+                        print('chip_i',chip_i)
+                        boxes=xyxy
+                        print('boxes',boxes)
+                        #print(int(boxes[0].cpu().detach().numpy()),int(boxes[2].cpu().detach().numpy()),int(boxes[1].cpu().detach().numpy()),int(boxes[3].cpu().detach().numpy()))
+                        cv2.imwrite(chip_i,im0[int(boxes[1].cpu().detach().numpy()):int(boxes[3].cpu().detach().numpy()),int(boxes[0].cpu().detach().numpy()):int(boxes[2].cpu().detach().numpy()),:])
+                        main_message="Detected {}".format(label)
+                        cmd_i='python3 {} --destinations={} --main_message="{}"  --img_path="{}" '.format(send_image_to_cell_path,destinations,main_message,chip_i)
+                        print(cmd_i)
+                        Thread(target=run_cmd,args=(cmd_i,)).start()
 
             # Print time (inference + NMS)
             #print(f'{s}Done. ({t2 - t1:.3f}s)')
@@ -294,6 +346,11 @@ if __name__ == '__main__':
     parser.add_argument("--height",default=None,help="height of incoming images for rtsp_server",type=int)
     parser.add_argument("--port",default=8554,help="port for rtsp_server",type=int)
     parser.add_argument("--stream_key",default="/video_stream",help="rtsp image stream uri for rtsp_server")
+    parser.add_argument("--send_image_to_cell",action='store_true',help='Should send text messages with chips?')
+    parser.add_argument("--send_image_to_cell_path",default="/media/steven/Elements/Full_Loop_YOLO/resources/send_image_to_cell.py",help="Send text message images of chips to cell")
+    parser.add_argument("--destinations",type=str,default='XXXYYYZZZZ@mms.att.net',help='phone numbers to send text message updates to')
+    parser.add_argument("--basepath_chips",type=str,default="/media/steven/Elements/chips",help="path for chips stored")
+    parser.add_argument("--sleep_time_chips",type=float,default=30,help="Seconds to sleep between sending chips")
     opt = parser.parse_args()
     
     print(opt)
