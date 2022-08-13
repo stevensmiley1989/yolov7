@@ -188,6 +188,9 @@ def detect(save_img=False):
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
+
+        
+
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -207,12 +210,15 @@ def detect(save_img=False):
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
+
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
+                im0_og=img
             else:
                 p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
-
+                im0_og=img
+            
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
             txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
@@ -236,6 +242,15 @@ def detect(save_img=False):
                     send_allowed=False
 
                 # Write results
+                text_words=""
+                img_list={}
+                label_list={}
+                detection_time_i=str(time.time()).replace('.','point')
+                detection_path_i=os.path.join(basepath_chips,detection_time_i)
+                detection_path_i_text=os.path.join(detection_path_i,'message_content.txt')
+                datetime_i=str(datetime.datetime.now())
+                detection_path_i_full=os.path.join(detection_path_i,'FULL')
+                im0_og=im0.copy()
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
@@ -248,21 +263,49 @@ def detect(save_img=False):
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
                     
                     if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed:
+                        if os.path.exists(detection_path_i)==False:
+                            os.makedirs(detection_path_i)
                         label = f'{names[int(cls)]} {conf:.2f}'
-                        label=str(datetime.datetime.now())+"_"+label
+                        label_og=label
+                        
                         label=label.replace(' ','_').replace('.','p').replace(':',"c").replace('-','_')
                         chip_i=label+".jpg"
-                        chip_i=os.path.join(basepath_chips,chip_i)
-                        print('im0.shape',im0.shape)
-                        print('chip_i',chip_i)
+                        chip_i=os.path.join(detection_path_i,chip_i)
+                        label_list[chip_i]=label_og
                         boxes=xyxy
-                        print('boxes',boxes)
-                        #print(int(boxes[0].cpu().detach().numpy()),int(boxes[2].cpu().detach().numpy()),int(boxes[1].cpu().detach().numpy()),int(boxes[3].cpu().detach().numpy()))
-                        cv2.imwrite(chip_i,im0[int(boxes[1].cpu().detach().numpy()):int(boxes[3].cpu().detach().numpy()),int(boxes[0].cpu().detach().numpy()):int(boxes[2].cpu().detach().numpy()),:])
-                        main_message="Detected {}".format(label)
-                        cmd_i='python3 {} --destinations={} --main_message="{}"  --img_path="{}" '.format(send_image_to_cell_path,destinations,main_message,chip_i)
-                        print(cmd_i)
-                        Thread(target=run_cmd,args=(cmd_i,)).start()
+                        MARGIN=5
+                        print(im0_og.shape)
+                        xmin=int(boxes[0].cpu().detach().numpy())
+                        xmin=max(xmin-MARGIN,0)
+                        xmax=int(boxes[2].cpu().detach().numpy())
+                        xmax=min(xmax+MARGIN,im0_og.shape[1])
+                        ymin=int(boxes[1].cpu().detach().numpy())
+                        ymin=max(ymin-MARGIN,0)
+                        ymax=int(boxes[3].cpu().detach().numpy())
+                        ymax=min(ymax+MARGIN,im0_og.shape[0])
+                        print('xmin,xmax,ymin,ymax')
+                        print(xmin,xmax,ymin,ymax)
+                        if len(list(im0_og.shape))==3:
+                            img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax,:]
+                            cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax,:])
+                        elif len(list(im0_og.shape))==2:
+                            img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax]
+                            cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax])
+                if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and len(img_list)>0:
+                    if os.path.exists(detection_path_i_full)==False:
+                        os.makedirs(detection_path_i_full)
+                    #subject=",".join(w for w in img_list.keys())
+                    main_message="Targets FOUND"
+                    with open(detection_path_i_text,'w') as f:
+                        f.writelines('Time found == {};\n'.format(datetime_i))
+                        # for k,v in label_list.items():
+                        #     f.writelines(';{}\n'.format(v))
+                    cmd_i='python3 {} --destinations={} --main_message="{}"  --img_path="{}" '.format(send_image_to_cell_path,destinations,main_message,detection_path_i)
+                    print(cmd_i)
+                    Thread(target=run_cmd,args=(cmd_i,)).start()
+                    cv2.imwrite(os.path.join(detection_path_i_full,'Full_Detected.jpg'),im0)
+                    cv2.imwrite(os.path.join(detection_path_i_full,'Full_OG.jpg'),im0_og)
+                    send_allowed=False
 
             # Print time (inference + NMS)
             #print(f'{s}Done. ({t2 - t1:.3f}s)')
