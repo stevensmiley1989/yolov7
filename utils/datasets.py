@@ -396,7 +396,12 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 self.imgs_index=cv2.resize(self.imgs[index],(self.new_W,self.new_H))
                 
                 n = 0
-            time.sleep(1 / self.fps)  # wait time
+            try:
+                time.sleep(1 / self.fps)  # wait time
+            except:
+                time.sleep(1 / 60.0)
+                pass
+                #print('self.fps is too short',self.fps)
 
     def __iter__(self):
         self.count = -1
