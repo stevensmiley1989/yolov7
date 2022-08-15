@@ -360,20 +360,22 @@ def detect(save_img=False):
                         if isinstance(vid_writer, cv2.VideoWriter):
                             vid_writer.release()  # release previous video writer
                         if vid_cap:  # video
+                            cap_type='video'
                             fps = vid_cap.get(cv2.CAP_PROP_FPS)
                             #w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             #h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                             w, h = im0.shape[1], im0.shape[0] #edit sjs
                             
                         else:  # stream
+                            cap_type='stream'
                             fps, w, h = 30, im0.shape[1], im0.shape[0]
                             save_path += '.mp4'
                             save_path_raw +='.mp4'
-                        if SAVE_RAWVIDEO:
+                        if SAVE_RAWVIDEO and cap_type=='stream':
                             vid_writer = cv2.VideoWriter(save_path_raw, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                         else:
                             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    if SAVE_RAWVIDEO:
+                    if SAVE_RAWVIDEO and cap_type=='stream':
                          vid_writer.write(im0_og)
                     else:
                         vid_writer.write(im0)
