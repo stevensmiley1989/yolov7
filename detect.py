@@ -83,6 +83,7 @@ def detect(save_img=False):
     PORT=opt.PORT
     HOST=opt.HOST
     use_socket=opt.use_socket
+    SAVE_RAWVIDEO=opt.SAVE_RAWVIDEO
     if  use_socket:
         import socket
         print('using Socket for PORT=={} and HOST=={}'.format(PORT,HOST))
@@ -184,6 +185,7 @@ def detect(save_img=False):
 
     # Set Dataloader
     vid_path, vid_writer = None, None
+    vid_path_raw,vid_writer_raw=None, None
     if webcam:
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
@@ -201,13 +203,14 @@ def detect(save_img=False):
     t0 = time.time()
     for path, img, im0s, vid_cap in dataset:
 
-        
+
 
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
+
 
         # Inference
         t1 = time_synchronized()
@@ -221,19 +224,23 @@ def detect(save_img=False):
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
 
+
         # Process detections
 
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-                im0_og=img
+
             else:
                 p, s, im0, frame = path, '', im0s, getattr(dataset, 'frame', 0)
-                im0_og=img
-            
+
+            im0_og=im0.copy()
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
             txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # img.txt
+            save_path_raw = str(save_dir / p.name)  # img.jpg
+            save_path_raw=save_path_raw+'_raw'
+
             s += '%gx%g ' % img.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
@@ -361,8 +368,16 @@ def detect(save_img=False):
                         else:  # stream
                             fps, w, h = 30, im0.shape[1], im0.shape[0]
                             save_path += '.mp4'
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                    vid_writer.write(im0)
+                            save_path_raw +='.mp4'
+                        if SAVE_RAWVIDEO:
+                            vid_writer = cv2.VideoWriter(save_path_raw, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                        else:
+                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                    if SAVE_RAWVIDEO:
+                         vid_writer.write(im0_og)
+                    else:
+                        vid_writer.write(im0)
+
             # Send to YOUTUBE (image with detections)
             if RTMP:
                 YH_i,YW_i,VBR_i=YOUTUBE_STREAM_RESOLUTION(res=YOUTUBE_STREAM_RES)
@@ -427,6 +442,7 @@ if __name__ == '__main__':
     parser.add_argument("--use_socket",action='store_false',help='use socket to send boxes and label?')
     parser.add_argument("--PORT",dest='PORT',type=int,default=8889,help='port like 8889 for sending boxes to')
     parser.add_argument("--HOST",dest='HOST',type=str,default='10.5.1.201',help='This is the main server ip address to send to')
+    parser.add_argument("--SAVE_RAWVIDEO",action='store_false',help='save the raw video of incoming video')
     opt = parser.parse_args()
     
     print(opt)
