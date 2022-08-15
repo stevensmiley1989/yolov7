@@ -80,6 +80,18 @@ def run_cmd(cmd_i):
 def detect(save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     #edit sjs
+    PORT=opt.PORT
+    HOST=opt.HOST
+    use_socket=opt.use_socket
+    if  use_socket:
+        import socket
+        print('using Socket for PORT=={} and HOST=={}'.format(PORT,HOST))
+        try:
+            sendstuff=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sendstuff.connect((HOST, PORT)) #edit sjs
+        except:
+            print('Not accepting socket')
+            use_socket=False
     YOUTUBE_STREAM_KEY = opt.YOUTUBE_RTMP
     YOUTUBE_STREAM_RES = opt.YOUTUBE_STREAM_RES
     if YOUTUBE_STREAM_KEY!='xxxx-xxxx-xxxx-xxxx-xxxx':
@@ -242,7 +254,6 @@ def detect(save_img=False):
                     send_allowed=False
 
                 # Write results
-                text_words=""
                 img_list={}
                 label_list={}
                 detection_time_i=str(time.time()).replace('.','point')
@@ -291,6 +302,22 @@ def detect(save_img=False):
                         elif len(list(im0_og.shape))==2:
                             img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax]
                             cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax])
+                if use_socket:
+                    boxes=xyxy
+                    MARGIN=0
+                    print(im0_og.shape)
+                    xmin=int(boxes[0].cpu().detach().numpy())
+                    xmin=max(xmin-MARGIN,0)
+                    xmax=int(boxes[2].cpu().detach().numpy())
+                    xmax=min(xmax+MARGIN,im0_og.shape[1])
+                    ymin=int(boxes[1].cpu().detach().numpy())
+                    ymin=max(ymin-MARGIN,0)
+                    ymax=int(boxes[3].cpu().detach().numpy())
+                    ymax=min(ymax+MARGIN,im0_og.shape[0])
+                    prefix='top'
+                    msg_i=f'{prefix}_{names[int(cls)]};{xmin};{ymin};{xmax};{ymax};{conf};{im0.shape[1]};{im0.shape[0]}' #edit sjs
+                    print('msg_i=',msg_i)
+                    sendstuff.sendall(msg_i.encode())#edit sjs
                 if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and len(img_list)>0:
                     if os.path.exists(detection_path_i_full)==False:
                         os.makedirs(detection_path_i_full)
@@ -358,6 +385,9 @@ def detect(save_img=False):
         #print(f"Results saved to {save_dir}{s}")
 
     print(f'Done. ({time.time() - t0:.3f}s)')
+    if use_socket:
+        data = sendstuff.recv(1024) #edit sjs
+        print('Received', repr(data)) #edit sjs
 
 
 if __name__ == '__main__':
@@ -394,6 +424,9 @@ if __name__ == '__main__':
     parser.add_argument("--destinations",type=str,default='XXXYYYZZZZ@mms.att.net',help='phone numbers to send text message updates to')
     parser.add_argument("--basepath_chips",type=str,default="/media/steven/Elements/chips",help="path for chips stored")
     parser.add_argument("--sleep_time_chips",type=float,default=30,help="Seconds to sleep between sending chips")
+    parser.add_argument("--use_socket",action='store_false',help='use socket to send boxes and label?')
+    parser.add_argument("--PORT",dest='PORT',type=int,default=8889,help='port like 8889 for sending boxes to')
+    parser.add_argument("--HOST",dest='HOST',type=str,default='10.5.1.201',help='This is the main server ip address to send to')
     opt = parser.parse_args()
     
     print(opt)
