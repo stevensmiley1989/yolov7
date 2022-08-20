@@ -309,22 +309,22 @@ def detect(save_img=False):
                         elif len(list(im0_og.shape))==2:
                             img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax]
                             cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax])
-                if use_socket:
-                    boxes=xyxy
-                    MARGIN=0
-                    print(im0_og.shape)
-                    xmin=int(boxes[0].cpu().detach().numpy())
-                    xmin=max(xmin-MARGIN,0)
-                    xmax=int(boxes[2].cpu().detach().numpy())
-                    xmax=min(xmax+MARGIN,im0_og.shape[1])
-                    ymin=int(boxes[1].cpu().detach().numpy())
-                    ymin=max(ymin-MARGIN,0)
-                    ymax=int(boxes[3].cpu().detach().numpy())
-                    ymax=min(ymax+MARGIN,im0_og.shape[0])
-                    prefix='top'
-                    msg_i=f'{prefix}_{names[int(cls)]};{xmin};{ymin};{xmax};{ymax};{conf};{im0.shape[1]};{im0.shape[0]}' #edit sjs
-                    print('msg_i=',msg_i)
-                    sendstuff.sendall(msg_i.encode())#edit sjs
+                    if use_socket:
+                        boxes=xyxy
+                        MARGIN=0
+                        print(im0_og.shape)
+                        xmin=int(boxes[0].cpu().detach().numpy())
+                        xmin=max(xmin-MARGIN,0)
+                        xmax=int(boxes[2].cpu().detach().numpy())
+                        xmax=min(xmax+MARGIN,im0_og.shape[1])
+                        ymin=int(boxes[1].cpu().detach().numpy())
+                        ymin=max(ymin-MARGIN,0)
+                        ymax=int(boxes[3].cpu().detach().numpy())
+                        ymax=min(ymax+MARGIN,im0_og.shape[0])
+                        prefix=opt.socket_prefix
+                        msg_i=f'{prefix}_{names[int(cls)]};{xmin};{ymin};{xmax};{ymax};{conf};{im0.shape[1]};{im0.shape[0]}' #edit sjs
+                        print('msg_i=',msg_i)
+                        sendstuff.sendall(msg_i.encode())#edit sjs
                 if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and len(img_list)>0:
                     if os.path.exists(detection_path_i_full)==False:
                         os.makedirs(detection_path_i_full)
@@ -445,6 +445,7 @@ if __name__ == '__main__':
     parser.add_argument("--PORT",dest='PORT',type=int,default=8889,help='port like 8889 for sending boxes to')
     parser.add_argument("--HOST",dest='HOST',type=str,default='10.5.1.201',help='This is the main server ip address to send to')
     parser.add_argument("--SAVE_RAWVIDEO",action='store_false',help='save the raw video of incoming video')
+    parser.add_argument("--socket_prefix",default='top',type=str,help='for encoding with socket message with bbox')
     opt = parser.parse_args()
     
     print(opt)
