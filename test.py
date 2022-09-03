@@ -51,7 +51,10 @@ def test(data,
 
         # Directories
         save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
+        print('clearing labels if they exist')
+        os.system('rm -rf {}'.format(save_dir/'labels'))
         (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+
 
         # Load model
         model = attempt_load(weights, map_location=device)  # load FP32 model

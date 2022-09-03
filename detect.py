@@ -78,7 +78,19 @@ def send_imgs(sender,im0):
 def run_cmd(cmd_i):
     os.system(cmd_i)
 def detect(save_img=False):
+    # ADD ability to send IMGZMQ images to other receivers 
+    sender_dic={}
+    if os.path.exists(opt.multi_sender_imgzmq_PATH):
+        import sys
+        sys.path.append(os.path.dirname(opt.multi_sender_imgzmq_PATH))
+        import multi_sender_imgzmq as msi
+        print('LOADED MSI')
+        PORT_LIST=msi.generate_PORT_LIST(opt.PORT_LIST_PATH)
+        sender_dic=msi.create_senders(msi.IP_LIST,PORT_LIST,REQ_REP=opt.REP_REQ)
+
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
+    resize_for_YOLO_MODEL=opt.resize_for_YOLO_MODEL
+    targets_of_interest_list=opt.target_of_interest_list.split(';')
     #edit sjs
     PORT=opt.PORT
     HOST=opt.HOST
@@ -159,7 +171,10 @@ def detect(save_img=False):
 
     # Directories
     save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
+    print('clearing labels if they exist')
+    os.system('rm -rf {}'.format(save_dir/'labels'))
     (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+
 
     # Initialize
     set_logging()
@@ -189,9 +204,9 @@ def detect(save_img=False):
     if webcam:
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+        dataset = LoadStreams(source, img_size=imgsz, stride=stride,resize=resize_for_YOLO_MODEL)
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+        dataset = LoadImages(source, img_size=imgsz, stride=stride,resize=resize_for_YOLO_MODEL)
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -269,6 +284,7 @@ def detect(save_img=False):
                 datetime_i=str(datetime.datetime.now())
                 detection_path_i_full=os.path.join(detection_path_i,'FULL')
                 im0_og=im0.copy()
+                msg_i_list="&"
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
@@ -280,7 +296,7 @@ def detect(save_img=False):
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
                     
-                    if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed:
+                    if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and names[int(cls)] in targets_of_interest_list:
                         if os.path.exists(detection_path_i)==False:
                             os.makedirs(detection_path_i)
                         label = f'{names[int(cls)]} {conf:.2f}'
@@ -292,7 +308,7 @@ def detect(save_img=False):
                         label_list[chip_i]=label_og
                         boxes=xyxy
                         MARGIN=5
-                        print(im0_og.shape)
+                        #print(im0_og.shape)
                         xmin=int(boxes[0].cpu().detach().numpy())
                         xmin=max(xmin-MARGIN,0)
                         xmax=int(boxes[2].cpu().detach().numpy())
@@ -301,8 +317,8 @@ def detect(save_img=False):
                         ymin=max(ymin-MARGIN,0)
                         ymax=int(boxes[3].cpu().detach().numpy())
                         ymax=min(ymax+MARGIN,im0_og.shape[0])
-                        print('xmin,xmax,ymin,ymax')
-                        print(xmin,xmax,ymin,ymax)
+                        #print('xmin,xmax,ymin,ymax')
+                        #print(xmin,xmax,ymin,ymax)
                         if len(list(im0_og.shape))==3:
                             img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax,:]
                             cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax,:])
@@ -312,7 +328,7 @@ def detect(save_img=False):
                     if use_socket:
                         boxes=xyxy
                         MARGIN=0
-                        print(im0_og.shape)
+                        #print(im0_og.shape)
                         xmin=int(boxes[0].cpu().detach().numpy())
                         xmin=max(xmin-MARGIN,0)
                         xmax=int(boxes[2].cpu().detach().numpy())
@@ -323,8 +339,10 @@ def detect(save_img=False):
                         ymax=min(ymax+MARGIN,im0_og.shape[0])
                         prefix=opt.socket_prefix
                         msg_i=f'{prefix}_{names[int(cls)]};{xmin};{ymin};{xmax};{ymax};{conf};{im0.shape[1]};{im0.shape[0]}' #edit sjs
-                        print('msg_i=',msg_i)
-                        sendstuff.sendall(msg_i.encode())#edit sjs
+                        msg_i_list=msg_i_list+msg_i+"&"
+                if use_socket:
+                    #print('msg_i_list=',msg_i_list)
+                    sendstuff.sendall(msg_i_list.encode())#edit sjs
                 if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and len(img_list)>0:
                     if os.path.exists(detection_path_i_full)==False:
                         os.makedirs(detection_path_i_full)
@@ -334,12 +352,13 @@ def detect(save_img=False):
                         f.writelines('Time found == {};\n'.format(datetime_i))
                         # for k,v in label_list.items():
                         #     f.writelines(';{}\n'.format(v))
-                    cmd_i='python3 {} --destinations={} --main_message="{}"  --img_path="{}" '.format(send_image_to_cell_path,destinations,main_message,detection_path_i)
+                    cmd_i='python3 {} --destinations="{}" --main_message="{}"  --img_path="{}" '.format(send_image_to_cell_path,destinations,main_message,detection_path_i)
                     print(cmd_i)
                     Thread(target=run_cmd,args=(cmd_i,)).start()
                     cv2.imwrite(os.path.join(detection_path_i_full,'Full_Detected.jpg'),im0)
                     cv2.imwrite(os.path.join(detection_path_i_full,'Full_OG.jpg'),im0_og)
                     send_allowed=False
+
 
             # Print time (inference + NMS)
             #print(f'{s}Done. ({t2 - t1:.3f}s)')
@@ -395,6 +414,9 @@ def detect(save_img=False):
                 running=True
             if RTSP:
                 Thread(target=send_imgs,args=(sender,im0,)).start()
+            
+            if len(sender_dic)>0:
+                msi.run_multi_senders_custom(im0_og,sender_dic)
                 
 
     if save_txt or save_img:
@@ -418,7 +440,7 @@ if __name__ == '__main__':
     parser.add_argument('--view-img', action='store_true', help='display results')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
+    parser.add_argument('--nosave', action='store_false', help='do not save images/videos') #edit sjs can change, but this makes it not store video
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
@@ -446,6 +468,11 @@ if __name__ == '__main__':
     parser.add_argument("--HOST",dest='HOST',type=str,default='10.5.1.201',help='This is the main server ip address to send to')
     parser.add_argument("--SAVE_RAWVIDEO",action='store_false',help='save the raw video of incoming video')
     parser.add_argument("--socket_prefix",default='top',type=str,help='for encoding with socket message with bbox')
+    parser.add_argument("--multi_sender_imgzmq_PATH",default="/media/steven/Elements/Full_Loop_YOLO/resources/multi_sender_imgzmq.py",help='Path to multi_sender_imgzmq')
+    parser.add_argument("--REP_REQ",action='store_true',help='Response Required for imgzmq')
+    parser.add_argument("--PORT_LIST_PATH",default="/media/steven/Elements/Full_Loop_YOLO/resources/PORT_LIST.txt",help="port list path",type=str)
+    parser.add_argument("--resize_for_YOLO_MODEL",action='store_false',help='resize incoming images to match yolo model input size?')
+    parser.add_argument("--target_of_interest_list",default="person;tractor;boat",type=str,help='Decide to send chips of this object if sending via cell')
     opt = parser.parse_args()
     
     print(opt)
