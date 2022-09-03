@@ -126,8 +126,10 @@ class _RepeatSampler(object):
 
 
 class LoadImages:  # for inference
-    def __init__(self, path, img_size=640, stride=32):
-        print("SMILEY YOU ARE LOADING IMAGES at size {}".format(img_size)) #edit sjs
+    def __init__(self, path, img_size=640, stride=32,resize=True):
+        self.resize=resize
+        if self.resize:
+            print("SMILEY YOU ARE LOADING IMAGES at size {}".format(img_size)) #edit sjs
         self.fps=0
         self.count_fps=0
         self.fps_cum=0
@@ -185,14 +187,17 @@ class LoadImages:  # for inference
         '''This should take the mp4 video aspect ratio into account for resizing or cropping to model size resolution'''
         try:
             H,W,D=img0.shape
-            if W>H:
-                ASPECT=float(W/H)
-                self.new_W=self.img_size
-                self.new_H=int(self.img_size/ASPECT)
-            else:
-                ASPECT=float(H/W)
-                self.new_H=self.img_size
-                self.new_W=int(self.img_size/ASPECT)
+            self.new_H=H
+            self.new_W=W
+            if self.resize:
+                if W>H:
+                    ASPECT=float(W/H)
+                    self.new_W=self.img_size
+                    self.new_H=int(self.img_size/ASPECT)
+                else:
+                    ASPECT=float(H/W)
+                    self.new_H=self.img_size
+                    self.new_W=int(self.img_size/ASPECT)
             #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
         except:
             pass
@@ -228,9 +233,9 @@ class LoadImages:  # for inference
                     
 
             self.frame += 1
-            print(f'video {self.count + 1}/{self.nf} ({self.frame}/{self.nframes}) {path}: ', end='')
+            #print(f'video {self.count + 1}/{self.nf} ({self.frame}/{self.nframes}) {path}: ', end='')
             self.fps,self.fps_avg=self.find_fps()
-            print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS) with {self.fps_avg:.2f} AVG FPS')
+            #print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS) with {self.fps_avg:.2f} AVG FPS')
 
         else:
             # Read image
@@ -317,8 +322,10 @@ class LoadWebcam:  # for inference
 
 
 class LoadStreams:  # multiple IP or RTSP cameras
-    def __init__(self, sources='streams.txt', img_size=640, stride=32):
-        print("SMILEY YOU ARE LOADING VIDEO at size {}".format(img_size)) #edit sjs
+    def __init__(self, sources='streams.txt', img_size=640, stride=32,resize=True):
+        self.resize=resize
+        if self.resize:
+            print("SMILEY YOU ARE LOADING IMAGES at size {}".format(img_size)) #edit sjs
         self.fps=0
         self.count_fps=0
         self.fps_cum=0
@@ -371,14 +378,17 @@ class LoadStreams:  # multiple IP or RTSP cameras
         #new from sjs
         '''This should take the mp4 video aspect ratio into account for resizing or cropping to model size resolution'''
         H,W,D=img0.shape
-        if W>H:
-            ASPECT=float(W/H)
-            self.new_W=self.img_size
-            self.new_H=int(self.img_size/ASPECT)
-        else:
-            ASPECT=float(H/W)
-            self.new_H=self.img_size
-            self.new_W=int(self.img_size/ASPECT)
+        self.new_H=H
+        self.new_W=W
+        if self.resize:
+            if W>H:
+                ASPECT=float(W/H)
+                self.new_W=self.img_size
+                self.new_H=int(self.img_size/ASPECT)
+            else:
+                ASPECT=float(H/W)
+                self.new_H=self.img_size
+                self.new_W=int(self.img_size/ASPECT)
         #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
         return self.new_H,self.new_W
 
