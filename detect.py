@@ -6,6 +6,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
+import numpy as np
 import datetime
 import time
 
@@ -17,6 +18,11 @@ from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
 from threading import Thread
 import subprocess as sp
+import simplejpeg
+import imagezmq
+import traceback
+import socket
+from multiprocessing import Process
 class YOUTUBE_RTMP:
     '''edit sjs, added YOUTUBE_RTMP class'''
     def __init__(self,YOUTUBE_STREAM_KEY):
@@ -96,6 +102,30 @@ def detect(save_img=False):
     HOST=opt.HOST
     use_socket=opt.use_socket
     SAVE_RAWVIDEO=opt.SAVE_RAWVIDEO
+    INFERENCE_TENSORFLOW_path=opt.INFERENCE_TENSORFLOW_path
+    if INFERENCE_TENSORFLOW_path!='None' and os.path.exists(INFERENCE_TENSORFLOW_path):
+        INFERENCE_TENSORFLOW_path=INFERENCE_TENSORFLOW_path.replace("'","").replace('"',"")
+        classify_chips=True
+        cmd_i="bash "+INFERENCE_TENSORFLOW_path
+        Process(target=run_cmd,args=(cmd_i,)).start()
+        f=open(INFERENCE_TENSORFLOW_path,'r')
+        f_read=f.readlines()
+        f.close()
+        SETTINGS_PATH=[w for w in f_read if w.find("--SETTINGS_PATH=")!=-1]
+        SETTINGS_PATH=SETTINGS_PATH[0].split('--SETTINGS_PATH=')[1].lstrip(' ').split(' ')[0].replace('\n','').replace("'","").replace('"',"")
+        f=open(SETTINGS_PATH,'r')
+        f_read=f.readlines()
+        f.close()
+        PORT_TF=[w.split("RT=")[1] for w in f_read if w.find('PORT=')!=-1]
+        PORT_TF=int(PORT_TF[0].replace('\n','').replace(' ',''))
+        HOST_TF=[w.split('ST=')[1] for w in f_read if w.find('HOST=')!=-1]
+        HOST_TF=HOST_TF[0].replace('\n','').replace(' ','').replace('"',"").replace("'","")
+    else:
+        classify_chips=False
+    if os.path.exists(INFERENCE_TENSORFLOW_path)==False:
+        print('THIS PATH DOES NOT EXIST = {}'.format(INFERENCE_TENSORFLOW_path))
+
+
     if  use_socket:
         import socket
         print('using Socket for PORT=={} and HOST=={}'.format(PORT,HOST))
@@ -292,9 +322,7 @@ def detect(save_img=False):
                         with open(txt_path + '.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                    if save_img or view_img:  # Add bbox to image
-                        label = f'{names[int(cls)]} {conf:.2f}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
+
                     
                     if send_image_to_cell and os.path.exists(send_image_to_cell_path) and send_allowed and names[int(cls)] in targets_of_interest_list:
                         if os.path.exists(detection_path_i)==False:
@@ -325,6 +353,30 @@ def detect(save_img=False):
                         elif len(list(im0_og.shape))==2:
                             img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax]
                             cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax])
+                    if classify_chips:
+                        boxes=xyxy
+                        MARGIN=5
+                        #print(im0_og.shape)
+                        xmin=int(boxes[0].cpu().detach().numpy())
+                        xmin=max(xmin-MARGIN,0)
+                        xmax=int(boxes[2].cpu().detach().numpy())
+                        xmax=min(xmax+MARGIN,im0_og.shape[1])
+                        ymin=int(boxes[1].cpu().detach().numpy())
+                        ymin=max(ymin-MARGIN,0)
+                        ymax=int(boxes[3].cpu().detach().numpy())
+                        ymax=min(ymax+MARGIN,im0_og.shape[0])
+                        #print('xmin,xmax,ymin,ymax')
+                        #print(xmin,xmax,ymin,ymax)
+                        print(f'OBJECT DETECTION CHIP PREDICTION = {names[int(cls)]} {conf:.2f}')
+                        currentCHIP=im0_og[ymin:ymax,xmin:xmax,:]
+                        currentCHIP = np.ascontiguousarray(currentCHIP)
+                        classification_i,confidence_i=classify_chip(currentCHIP,HOST_TF,PORT_TF,host_name)
+                    if save_img or view_img:  # Add bbox to image
+                        if classify_chips:
+                            label=f'OBJ: {names[int(cls)]} {conf:.2f} CL: {classification_i} {confidence_i:.2f}'
+                        else:
+                            label = f'{names[int(cls)]} {conf:.2f}'
+                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
                     if use_socket:
                         boxes=xyxy
                         MARGIN=0
@@ -417,7 +469,7 @@ def detect(save_img=False):
             
             if len(sender_dic)>0:
                 msi.run_multi_senders_custom(im0_og,sender_dic)
-                
+
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
@@ -427,9 +479,33 @@ def detect(save_img=False):
     if use_socket:
         data = sendstuff.recv(1024) #edit sjs
         print('Received', repr(data)) #edit sjs
-
+host_name= socket.gethostname() # send hostname with each image
+def classify_chip(currentCHIP,HOST,PORT,host_name):
+    jpeg_quality = 100                   # 0 to 100, higher is better quality
+    try:
+        with imagezmq.ImageSender(connect_to=f'tcp://{HOST}:{PORT}') as sender:
+            #while True:                 # send images as a stream until Ctrl-C
+                #image          = picam.read()
+            jpg_buffer     = simplejpeg.encode_jpeg(currentCHIP, quality=jpeg_quality, 
+                                                    colorspace='BGR')
+            classification_i = sender.send_jpg(host_name, jpg_buffer)
+            classification_i=str(classification_i).replace("b'","").replace("'","").replace('"',"")
+            print('classification_i',classification_i)
+            if str(classification_i).find(';')!=-1:
+                classification_i_og=classification_i
+                classification_i=str(classification_i_og).split(';')[0]
+                confidence_i=float(str(classification_i_og).split(';')[1])
+            return classification_i,confidence_i
+    except (KeyboardInterrupt, SystemExit):
+        pass                            # Ctrl-C was pressed to end program
+    except Exception as ex:
+        print('Python error with no Exception handler:')
+        print('Traceback error:', ex)
+        traceback.print_exc()                
 
 if __name__ == '__main__':
+    #TF_INFERENCE=r"/media/steven/OneTouch4tb/DATA_CLASSIFICATION/train_hemtthumveetank/CUSTOM_hemtthumveetank_chipW256_chipH256_classes3/INFERENCE.sh"
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
@@ -473,6 +549,7 @@ if __name__ == '__main__':
     parser.add_argument("--PORT_LIST_PATH",default="/media/steven/Elements/Full_Loop_YOLO/resources/PORT_LIST.txt",help="port list path",type=str)
     parser.add_argument("--resize_for_YOLO_MODEL",action='store_false',help='resize incoming images to match yolo model input size?')
     parser.add_argument("--target_of_interest_list",default="person;tractor;boat",type=str,help='Decide to send chips of this object if sending via cell')
+    parser.add_argument("--INFERENCE_TENSORFLOW_path",default='None',help="path to use secondary classifier with tensorflow models bash file")
     opt = parser.parse_args()
     
     print(opt)
