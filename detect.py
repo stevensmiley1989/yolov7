@@ -103,6 +103,7 @@ def detect(save_img=False):
     use_socket=opt.use_socket
     SAVE_RAWVIDEO=opt.SAVE_RAWVIDEO
     INFERENCE_TENSORFLOW_path=opt.INFERENCE_TENSORFLOW_path
+    use_classifier_over_yolo=opt.use_classifier_over_yolo
     if INFERENCE_TENSORFLOW_path!='None' and os.path.exists(INFERENCE_TENSORFLOW_path):
         INFERENCE_TENSORFLOW_path=INFERENCE_TENSORFLOW_path.replace("'","").replace('"',"")
         classify_chips=True
@@ -316,6 +317,36 @@ def detect(save_img=False):
                 im0_og=im0.copy()
                 msg_i_list="&"
                 for *xyxy, conf, cls in reversed(det):
+                    if classify_chips:
+                        boxes=xyxy
+                        MARGIN=0
+                        #print(im0_og.shape)
+                        xmin=int(boxes[0].cpu().detach().numpy())
+                        xmin=max(xmin-MARGIN,0)
+                        xmax=int(boxes[2].cpu().detach().numpy())
+                        xmax=min(xmax+MARGIN,im0_og.shape[1])
+                        ymin=int(boxes[1].cpu().detach().numpy())
+                        ymin=max(ymin-MARGIN,0)
+                        ymax=int(boxes[3].cpu().detach().numpy())
+                        ymax=min(ymax+MARGIN,im0_og.shape[0])
+                        #print('xmin,xmax,ymin,ymax')
+                        #print(xmin,xmax,ymin,ymax)
+                        print(f'OBJECT DETECTION CHIP PREDICTION = {names[int(cls)]} {conf:.2f}')
+                        currentCHIP=im0_og[ymin:ymax,xmin:xmax,:]
+                        currentCHIP = np.ascontiguousarray(currentCHIP)
+                        classification_i,confidence_i=classify_chip(currentCHIP,HOST_TF,PORT_TF,host_name)
+                        if classification_i.lower() in names:
+                            classification_i=classification_i.lower()
+                        elif classification_i.upper() in names:
+                            classification_i=classification_i.upper()
+                        if use_classifier_over_yolo:
+                            OBJ_DET_name=names[int(cls)]
+                            if classification_i not in names:
+                                new_index=len(names)+1
+                                names.append(classification_i)
+                                colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+                            cls=[k for k,v in enumerate(names) if v==classification_i]
+                            cls=str(cls[0])
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if opt.save_conf else (cls, *xywh)  # label format
@@ -353,27 +384,13 @@ def detect(save_img=False):
                         elif len(list(im0_og.shape))==2:
                             img_list[chip_i]=im0_og[ymin:ymax,xmin:xmax]
                             cv2.imwrite(chip_i,im0_og[ymin:ymax,xmin:xmax])
-                    if classify_chips:
-                        boxes=xyxy
-                        MARGIN=5
-                        #print(im0_og.shape)
-                        xmin=int(boxes[0].cpu().detach().numpy())
-                        xmin=max(xmin-MARGIN,0)
-                        xmax=int(boxes[2].cpu().detach().numpy())
-                        xmax=min(xmax+MARGIN,im0_og.shape[1])
-                        ymin=int(boxes[1].cpu().detach().numpy())
-                        ymin=max(ymin-MARGIN,0)
-                        ymax=int(boxes[3].cpu().detach().numpy())
-                        ymax=min(ymax+MARGIN,im0_og.shape[0])
-                        #print('xmin,xmax,ymin,ymax')
-                        #print(xmin,xmax,ymin,ymax)
-                        print(f'OBJECT DETECTION CHIP PREDICTION = {names[int(cls)]} {conf:.2f}')
-                        currentCHIP=im0_og[ymin:ymax,xmin:xmax,:]
-                        currentCHIP = np.ascontiguousarray(currentCHIP)
-                        classification_i,confidence_i=classify_chip(currentCHIP,HOST_TF,PORT_TF,host_name)
+                    
                     if save_img or view_img:  # Add bbox to image
                         if classify_chips:
-                            label=f'OBJ: {names[int(cls)]} {conf:.2f} CL: {classification_i} {confidence_i:.2f}'
+                            if use_classifier_over_yolo:
+                                label=f'OBJ: {OBJ_DET_name} {conf:.2f} CL: {classification_i} {confidence_i:.2f}'
+                            else:
+                                label=f'OBJ: {names[int(cls)]} {conf:.2f} CL: {classification_i} {confidence_i:.2f}'
                         else:
                             label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
@@ -547,9 +564,10 @@ if __name__ == '__main__':
     parser.add_argument("--multi_sender_imgzmq_PATH",default="/media/steven/Elements/Full_Loop_YOLO/resources/multi_sender_imgzmq.py",help='Path to multi_sender_imgzmq')
     parser.add_argument("--REP_REQ",action='store_true',help='Response Required for imgzmq')
     parser.add_argument("--PORT_LIST_PATH",default="/media/steven/Elements/Full_Loop_YOLO/resources/PORT_LIST.txt",help="port list path",type=str)
-    parser.add_argument("--resize_for_YOLO_MODEL",action='store_false',help='resize incoming images to match yolo model input size?')
+    parser.add_argument("--resize_for_YOLO_MODEL",action='store_true',help='resize incoming images to match yolo model input size?')
     parser.add_argument("--target_of_interest_list",default="person;tractor;boat",type=str,help='Decide to send chips of this object if sending via cell')
     parser.add_argument("--INFERENCE_TENSORFLOW_path",default='None',help="path to use secondary classifier with tensorflow models bash file")
+    parser.add_argument("--use_classifier_over_yolo",action='store_false',help='if classifier is being used then it overrides the label')
     opt = parser.parse_args()
     
     print(opt)
