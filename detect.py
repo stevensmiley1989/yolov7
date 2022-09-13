@@ -487,6 +487,9 @@ def detect(save_img=False):
                     cv2.imshow(str(p), im0)
                     cv2.waitKey(1)  # 1 millisecond
                 if LOOP:
+                    START='STAART'
+                    END='EENNDD'
+                    msg_i_list=START+msg_i_list+END
                     yolov7_model.send(msg_i_list.encode())
                     if view_img:
                         cv2.imshow('Detection',im0)
@@ -591,7 +594,7 @@ if __name__ == '__main__':
     parser.add_argument('--view-img', action='store_true', help='display results')
     parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--nosave', action='store_false', help='do not save images/videos') #edit sjs can change, but this makes it not store video
+    parser.add_argument('--nosave', action='store_true', help='do not save images/videos') #edit sjs can change, but this makes it not store video
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
