@@ -23,6 +23,79 @@ import imagezmq
 import traceback
 import socket
 from multiprocessing import Process
+def BndBoxYolo2XML(xcen,ycen,w,h,width,height,classIndex):
+    '''converts YOLO to PascalVOC'''
+    xmax = int((xcen*width) + (w * width)/2.0)
+    xmin = int((xcen*width) - (w * width)/2.0)
+    ymax = int((ycen*height) + (h * height)/2.0)
+    ymin = int((ycen*height) - (h * height)/2.0)
+    return classIndex, xmin, xmax, ymin, ymax
+def create_XML(obj_names,img_data,path_jpg,path_xml,path_txt):
+    try:
+        height,width,depth=img_data.shape
+    except:
+        print('EXCEPTION for {}'.format(path_jpg))
+        height,width=img_data.shape
+        depth=2
+    #print(height,width,depth)
+    folder='JPEGImages'
+    filename=os.path.basename(path_jpg)
+    path=path_jpg
+    database='Unknown'
+    f=open(path_xml,'w')
+    f.writelines('<annotation>\n')
+    f.writelines('\t <folder>{}</folder>\n'.format(folder))
+    f.writelines('\t <filename>{}</filename>\n'.format(filename))
+    f.writelines('\t <path>{}</path>\n'.format(path))
+    f.writelines('\t<source>\n')
+    f.writelines('\t\t<database>{}</database>\n'.format(database))
+    f.writelines('\t</source>\n')
+    f.writelines('\t<size>\n')
+    f.writelines('\t\t<width>{}</width>\n'.format(width))
+    f.writelines('\t\t<height>{}</height>\n'.format(height))
+    f.writelines('\t\t<depth>{}</depth>\n'.format(depth))  
+    f.writelines('\t</size>\n')
+    f.writelines('\t<segmented>0</segmented>\n')
+    f=open(path_txt,'r')
+    f_read=f.readlines()
+    f.close()
+    f=open(path_xml,'a')
+    for line in f_read:
+        if len(line.split(' '))>5:
+            name=int(line.split(' ')[0].strip())
+            xcen=float(line.split(' ')[1])
+            ycen=float(line.split(' ')[2])
+            w=float(line.split(' ')[3])
+            h=float(line.split(' ')[4])
+            conf_i_f=float(line.split(' ')[5])
+
+            name=obj_names[name]
+            name, xmin, xmax, ymin, ymax=BndBoxYolo2XML(xcen,ycen,w,h,width,height,name)
+
+            confidence=conf_i_f
+
+            pose='Unspecified'
+            truncated='0' 
+            difficult='0'
+            xmin=max(0,xmin)
+            ymin=max(0,ymin)
+            xmax=min(width,xmax)
+            ymax=min(height,ymax)  
+            f.writelines('\t<object>\n')
+            f.writelines('\t\t<name>{}</name>\n'.format(name))
+            f.writelines('\t\t<confidence>{}</confidence>\n'.format(confidence))
+            f.writelines('\t\t<pose>{}</pose>\n'.format(pose))       
+            f.writelines('\t\t<truncated>{}</truncated>\n'.format(truncated))
+            f.writelines('\t\t<difficult>{}</difficult>\n'.format(difficult))
+            f.writelines('\t\t<bndbox>\n')
+            f.writelines('\t\t\t<xmin>{}</xmin>\n'.format(xmin))
+            f.writelines('\t\t\t<ymin>{}</ymin>\n'.format(ymin))
+            f.writelines('\t\t\t<xmax>{}</xmax>\n'.format(xmax))
+            f.writelines('\t\t\t<ymax>{}</ymax>\n'.format(ymax))
+            f.writelines('\t\t</bndbox>\n')
+            f.writelines('\t</object>\n')
+    f.writelines('</annotation>\n')
+    f.close()
 class YOUTUBE_RTMP:
     '''edit sjs, added YOUTUBE_RTMP class'''
     def __init__(self,YOUTUBE_STREAM_KEY):
@@ -150,7 +223,7 @@ def detect(save_img=False):
         HOST_RX=socket.gethostname()
         connected=False
         while connected==False:
-            print('using Socket for PORT=={} and HOST=={}'.format(PORT,HOST))
+            print('using Socket for PORT_RX=={} and HOST_RX=={}'.format(PORT_RX,HOST_RX))
             try:
                 yolov7_model=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 yolov7_model.connect((HOST_RX, PORT_RX)) #edit sjs
@@ -498,8 +571,20 @@ def detect(save_img=False):
 
                 # Save results (image with detections)
                 if save_img:
-                    if dataset.mode == 'image':
+                    if dataset.mode == 'image' and save_txt==False:
                         cv2.imwrite(save_path, im0)
+                        print(f" The image with the result is saved in: {save_path}")
+                    elif dataset.mode == 'image' and save_txt:
+                        
+                        path_JPEGImages=os.path.join(os.path.dirname(save_path),'JPEGImages')
+                        path_Annotations=os.path.join(os.path.dirname(save_path),'Annotations')
+                        if os.path.exists(path_JPEGImages)==False:
+                            os.makedirs(path_JPEGImages)
+                        if os.path.exists(path_Annotations)==False:
+                            os.makedirs(path_Annotations)
+                        if os.path.exists(txt_path+'.txt'):
+                            create_XML(names,im0_og,save_path,os.path.join(path_Annotations,os.path.basename(txt_path))+'.xml',txt_path + '.txt')
+                        cv2.imwrite(os.path.join(path_JPEGImages,os.path.basename(save_path)), im0_og)
                         print(f" The image with the result is saved in: {save_path}")
                     else:  # 'video' or 'stream'
                         if vid_path != save_path:  # new video
