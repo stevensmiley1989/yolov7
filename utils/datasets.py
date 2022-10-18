@@ -358,6 +358,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 url = pafy.new(url).getbest(preftype="mp4").url
             cap = cv2.VideoCapture(url)
             assert cap.isOpened(), f'Failed to open {s}'
+            if s.isnumeric():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH,img_size);
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT,img_size);
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             self.fps = cap.get(cv2.CAP_PROP_FPS) % 100
@@ -436,7 +439,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
                         self.imgs[index]=cv2.resize(self.imgs_index,(self.new_W,self.new_H))
                     else:
                         self.imgs[index]=self.imgs_index
-                    print(self.new_H,self.new_W)
+                    #print(self.new_H,self.new_W)
                 except:
                     n-=1
                 
