@@ -364,10 +364,16 @@ class LoadStreams:  # multiple IP or RTSP cameras
 
             _, self.imgs[i] = cap.read()  # guarantee first frame
             #edit sjs
-            self.new_H,self.new_W=self.find_new_size(self.imgs[i])
+            if s.isnumeric():
+                #self.imgs[i]=cv2.resize(self.imgs[i],(self.new_W,self.new_H))
+                self.new_W=img_size
+                self.new_H=img_size
+            else:
+                self.new_H,self.new_W=self.find_new_size(self.imgs[i])
+            self.source_type=s
             thread = Thread(target=self.update, args=([i, cap]), daemon=True)
             #print(f' success ({w}x{h} at {self.fps:.2f} FPS).')
-            print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS)') #edit sjs
+            print(f' success ({self.new_W}x{self.new_H} at {self.fps:.2f} FPS) for {str(s)}') #edit sjs
             thread.start()
         print('')  # newline
 
@@ -393,7 +399,21 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 self.new_W=int(self.img_size/ASPECT)
         #print("self.new_H={},self.new_W={}".format(self.new_H,self.new_W))
         return self.new_H,self.new_W
-
+    def find_aspect(self,img0):
+        H,W,D=img0.shape
+        #if self.resize:
+        if W>H:
+            ASPECT=float(W/H)
+            new_W=self.img_size
+            new_H=int(self.img_size/ASPECT)
+        else:
+            ASPECT=float(H/W)
+            new_H=self.img_size
+            new_W=int(self.img_size/ASPECT)
+        #else:
+        #    new_H=H
+        #    new_W=W
+        return new_H,new_W
     def update(self, index, cap):
         # Read next stream frame in a daemon thread
         n = 0
@@ -403,9 +423,22 @@ class LoadStreams:  # multiple IP or RTSP cameras
             cap.grab()
             if n == 4:  # read every 4th frame
                 success, im = cap.retrieve()
-                self.imgs[index] = im if success else self.imgs[index] * 0
+                #self.imgs[index] = im if success else self.imgs[index] * 0
+                if success:
+                    self.imgs_index=im
+                else:
+                    
+                    self.imgs[index]=np.zeros(shape=(self.new_W,self.new_H,3))
                 #edit sjs
-                self.imgs_index=cv2.resize(self.imgs[index],(self.new_W,self.new_H))
+                try:
+                    if self.source_type.isnumeric():
+                        self.new_H,self.new_W=self.find_aspect(self.imgs_index)
+                        self.imgs[index]=cv2.resize(self.imgs_index,(self.new_W,self.new_H))
+                    else:
+                        self.imgs[index]=self.imgs_index
+                    print(self.new_H,self.new_W)
+                except:
+                    n-=1
                 
                 n = 0
             try:
@@ -422,6 +455,12 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __next__(self):
         self.count += 1
         img0 = self.imgs.copy()
+        #edit sjs
+        #self.new_H,self.new_W=self.find_new_size(img0)
+        # try:
+        #     img0=cv2.resize(img0,(self.new_W,self.new_H))
+        # except:
+        #     pass
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
             raise StopIteration
