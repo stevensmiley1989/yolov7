@@ -295,6 +295,7 @@ def detect(save_img=False):
         
     
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
+
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
         ('rtsp://', 'rtmp://', 'http://', 'https://'))
 
@@ -383,9 +384,11 @@ def detect(save_img=False):
 
             # Inference
             t1 = time_synchronized()
-            pred = model(img, augment=opt.augment)[0]
+            with torch.no_grad(): #fixed memory leak issue 072f76c
+                pred = model(img, augment=opt.augment)[0]
 
             # Apply NMS
+            #print('classes=opt.classes',opt.classes)
             pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
             t2 = time_synchronized()
 
@@ -570,7 +573,7 @@ def detect(save_img=False):
                     msg_i_list="&"
 
                 # Save results (image with detections)
-                if save_img:
+                if save_img and send_image_to_cell==False:
                     if dataset.mode == 'image' and save_txt==False:
                         cv2.imwrite(save_path, im0)
                         print(f" The image with the result is saved in: {save_path}")
